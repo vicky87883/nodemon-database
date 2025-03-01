@@ -10,6 +10,7 @@ struct node {
     float dsa_marks;
     float discrete_marks;
     float lab_marks;
+    float total_marks;
     struct node *link;
 };
 
@@ -74,14 +75,14 @@ void displayNode() {
         return;
     }
 
-    printf("\n%-10s %-5s %-10s %-10s %-10s %-10s %-10s\n",
-           "Name", "Age", "Roll No", "OS Marks", "DSA Marks", "Discrete Marks", "Lab Marks");
+    printf("\n%-10s %-5s %-10s %-10s %-10s %-10s %-10s %-10s\n",
+           "Name", "Age", "Roll No", "OS Marks", "DSA Marks", "Discrete Marks", "Lab Marks","Total Marks");
     printf("---------------------------------------------------------------\n");
 
     while (temp != NULL) {
-        printf("%-10s %-5d %-10d %-10.2f %-10.2f %-10.2f %-10.2f\n",
+        printf("%-10s %-5d %-10d %-10.2f %-10.2f %-10.2f %-10.2f %10.2f\n",
                temp->name, temp->age, temp->rollno, temp->os_marks,
-               temp->dsa_marks, temp->discrete_marks, temp->lab_marks);
+               temp->dsa_marks, temp->discrete_marks, temp->lab_marks,temp->total_marks);
         temp = temp->link;
     }
 }
@@ -95,7 +96,13 @@ int length() {
     }
     return len;
 }
-
+void total_marks() {
+    struct node *temp = head;
+    while (temp != NULL) {
+        temp->total_marks=temp->dsa_marks+temp->discrete_marks+temp->lab_marks+temp->os_marks;
+        temp = temp->link;
+    }
+}
 void deleteNode() {
     if (head == NULL) {
         printf("List is empty, nothing to delete.\n");
@@ -131,11 +138,54 @@ void deleteNode() {
     free(temp);
     printf("Node deleted at position %d\n", loc);
 }
+void Sorted_list() {
+    struct node *p, *q;
+    char temp_name[50];
+    int temp_age, temp_rollno;
+    float temp_os, temp_dsa, temp_discrete, temp_lab;
 
+    if (head == NULL || head->link == NULL) return; // If list is empty or has one node, no need to sort.
+
+    for (p = head; p->link != NULL; p = p->link) {
+        for (q = head; q->link != NULL; q = q->link) {
+            if (strcmp(q->name, q->link->name) > 0) { // Compare names
+                // Swap names
+                strcpy(temp_name, q->name);
+                strcpy(q->name, q->link->name);
+                strcpy(q->link->name, temp_name);
+
+                // Swap other data
+                temp_age = q->age;
+                q->age = q->link->age;
+                q->link->age = temp_age;
+
+                temp_rollno = q->rollno;
+                q->rollno = q->link->rollno;
+                q->link->rollno = temp_rollno;
+
+                temp_os = q->os_marks;
+                q->os_marks = q->link->os_marks;
+                q->link->os_marks = temp_os;
+
+                temp_dsa = q->dsa_marks;
+                q->dsa_marks = q->link->dsa_marks;
+                q->link->dsa_marks = temp_dsa;
+
+                temp_discrete = q->discrete_marks;
+                q->discrete_marks = q->link->discrete_marks;
+                q->link->discrete_marks = temp_discrete;
+
+                temp_lab = q->lab_marks;
+                q->lab_marks = q->link->lab_marks;
+                q->link->lab_marks = temp_lab;
+            }
+        }
+    }
+}
 int main() {
     int ch;
     while (1) {
-        printf("\n1. Insert\n2. Display\n3. Delete\n4.Insertion_At_Beginning\n5. Insertion_At_Middle\n6. Exit\n");
+        printf("\n1. Insert\n2. Display\n3. Delete\n4.Insertion_At_Beginning\n5. Insertion_At_Middle\n6. Calculate_Total_Marks\n7. Sorted List\n8. Exit\n");
         printf("Enter choice: ");
         scanf("%d", &ch);
         switch (ch) {
@@ -155,6 +205,12 @@ int main() {
                 insert_at_middle();
             break;
             case 6:
+                total_marks();
+            break;
+            case 7:
+                Sorted_list();
+            break;
+            case 8:
                 exit(0);
             default:
                 printf("Invalid choice. Please try again.\n");
