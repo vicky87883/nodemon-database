@@ -15,6 +15,39 @@ struct node {
 };
 
 struct node *head = NULL;
+// Function to write data to a file
+void writeToFile() {
+    FILE *file = fopen("C:/Users/hp/CLionProjects/linklist/cmake-build-debug/students.txt", "w");  // Open file in write mode
+    if (file == NULL) {
+        printf("Error opening file!\n");
+        return;
+    }
+
+    struct node *temp = head;
+    while (temp != NULL) {
+        fprintf(file, "%s %d %d %.2f %.2f %.2f %.2f\n",
+                temp->name, temp->age, temp->rollno,
+                temp->os_marks, temp->dsa_marks, temp->discrete_marks, temp->lab_marks);
+        temp = temp->link;
+    }
+
+    fclose(file);
+    printf("Data successfully written to students.txt\n");
+}
+void remove_outliers() {
+    struct node *p=head,*q;
+    char name[100];
+    printf("Enter the name of the student");
+    scanf("%s",name);
+    while (p!=NULL) {
+        if (p->name==name) {
+            q->link=p->link;
+            free(p);
+        }
+        p=p->link;
+        q=p;
+    }
+}
 void insert_at_beginning() {
     struct node *newnode,*temp=head;
     newnode = (struct node *)malloc(sizeof(struct node));
@@ -23,10 +56,12 @@ void insert_at_beginning() {
           &newnode->os_marks, &newnode->dsa_marks, &newnode->discrete_marks, &newnode->lab_marks);
 
     newnode->link = NULL;
+
  newnode->link = head;
     head = newnode;
     printf("Insert New Node Successfully\n");
 }
+
 void insert_at_middle() {
     struct node *newnode,*temp=head;
     int i=1,loc;
@@ -66,6 +101,7 @@ void insertNode() {
         }
         temp->link = newnode;
     }
+    writeToFile();
 }
 
 void displayNode() {
@@ -90,7 +126,7 @@ void displayNode() {
 int length() {
     struct node *temp = head;
     int len = 0;
-    while (temp != NULL) {
+    while (temp) {
         len++;
         temp = temp->link;
     }

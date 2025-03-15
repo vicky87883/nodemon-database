@@ -3,4 +3,5 @@ project(linklist C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(linklist main.c)
+add_executable(linklist main.c
+        sorting.h)
