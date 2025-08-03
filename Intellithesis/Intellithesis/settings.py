@@ -79,12 +79,8 @@ WSGI_APPLICATION = 'Intellithesis.wsgi.application'
 # settings.py
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'Intellithesis_Scholar_DB',  # Replace with your DB name
-        'USER': 'postgres',                  # Default user is usually 'postgres'
-        'PASSWORD': '123',  # Ensure you have the correct password
-        'HOST': 'localhost',                  # Assuming PostgreSQL is on the same machine
-        'PORT': '5432',                       # Default port for PostgreSQL
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 

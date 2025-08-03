@@ -117,7 +117,7 @@ def process_tex(file_path: str) -> Tuple[str, List[str]]:
     Enterprise-grade LaTeX processing with comprehensive error handling.
     """
     errors = []
-        text = ""
+    text = ""
     
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -676,7 +676,7 @@ def parse_llm_response_enhanced(response_content: str, extracted_sections: Dict[
                     result['content_type'] = 'THESIS'
                 elif 'JOURNAL' in content_type_raw:
                     result['content_type'] = 'JOURNAL'
-        else:
+                else:
                     result['content_type'] = 'RESEARCH_PAPER'
                 current_section = None
                 section_content = []
@@ -721,7 +721,7 @@ def parse_llm_response_enhanced(response_content: str, extracted_sections: Dict[
         
         logger.info("Enhanced LLM response parsing completed successfully")
         
-        except Exception as e:
+    except Exception as e:
         error_msg = f"Enhanced LLM response parsing error: {str(e)}"
         errors.append(error_msg)
         logger.error(error_msg)
@@ -986,3 +986,49 @@ class AcademicContentList(ListView):
     model = ResearchPaper
     template_name = 'academic_content_list.html'
     context_object_name = 'academic_contents'
+
+
+# Add missing view functions for URL patterns
+def process_caption_matching_request(request):
+    """Placeholder for caption matching functionality"""
+    from django.http import JsonResponse
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Caption matching functionality not yet implemented'
+    })
+
+
+def process_image_description_request(request):
+    """Placeholder for image description functionality"""
+    from django.http import JsonResponse
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Image description functionality not yet implemented'
+    })
+
+
+def process_caption_normalization_request(request):
+    """Placeholder for caption normalization functionality"""
+    from django.http import JsonResponse
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Caption normalization functionality not yet implemented'
+    })
+
+
+def process_caption_validation_request(request):
+    """Placeholder for caption validation functionality"""
+    from django.http import JsonResponse
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Caption validation functionality not yet implemented'
+    })
+
+
+def process_ocr_document_request(request):
+    """Placeholder for OCR document processing functionality"""
+    from django.http import JsonResponse
+    return JsonResponse({
+        'status': 'success',
+        'message': 'OCR document processing functionality not yet implemented'
+    })
