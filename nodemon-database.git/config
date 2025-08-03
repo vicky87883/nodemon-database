@@ -1,0 +1,10 @@
+[core]
+	repositoryformatversion = 0
+	filemode = false
+	bare = true
+	symlinks = false
+	ignorecase = true
+[remote "origin"]
+	url = https://github.com/vicky87883/nodemon-database.git
+	fetch = +refs/*:refs/*
+	mirror = true

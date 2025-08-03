@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload Research Paper</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f8f9fa; }
+        .container { background: #fff; padding: 30px; border-radius: 8px; max-width: 700px; margin: auto; box-shadow: 0 2px 8px #ccc; }
+        h1 { color: #2c3e50; }
+        .success { color: green; }
+        .error { color: red; }
+        .field { margin-bottom: 15px; }
+        label { font-weight: bold; }
+        .meta { color: #555; font-size: 0.95em; margin-bottom: 10px; }
+        textarea { width: 100%; min-height: 80px; }
+        .section { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Upload Research Paper</h1>
+    {% if message %}
+        <div class="{% if error %}error{% else %}success{% endif %}">{{ message }}</div>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="field">
+            {{ form.file.label_tag }}<br>
+            {{ form.file }}
+        </div>
+        <button type="submit">Upload</button>
+    </form>
+
+    {% if title %}
+        <hr>
+        <div class="section">
+            <h2>{{ title }}</h2>
+            <div class="meta">
+                <strong>Content Type:</strong> {{ content_type }}<br>
+                <strong>Extracted Date:</strong> {{ extracted_date|date:"Y-m-d H:i" }}
+            </div>
+            {% if abstract %}
+            <div>
+                <strong>Abstract:</strong>
+                <div>{{ abstract|linebreaks }}</div>
+            </div>
+            {% endif %}
+            {% if introduction %}
+            <div>
+                <strong>Introduction:</strong>
+                <div>{{ introduction|linebreaks }}</div>
+            </div>
+            {% endif %}
+            {% if methodology %}
+            <div>
+                <strong>Methodology:</strong>
+                <div>{{ methodology|linebreaks }}</div>
+            </div>
+            {% endif %}
+            {% if results %}
+            <div>
+                <strong>Results:</strong>
+                <div>{{ results|linebreaks }}</div>
+            </div>
+            {% endif %}
+            {% if conclusion %}
+            <div>
+                <strong>Conclusion:</strong>
+                <div>{{ conclusion|linebreaks }}</div>
+            </div>
+            {% endif %}
+            {% if references %}
+            <div>
+                <strong>References:</strong>
+                <div>{{ references|linebreaks }}</div>
+            </div>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+</body>
+</html>

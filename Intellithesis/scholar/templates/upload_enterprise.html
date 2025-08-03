@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enterprise Research Paper Analysis</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 40px; 
+            background: #f8f9fa; 
+            color: #333;
+        }
+        .container { 
+            background: #fff; 
+            padding: 30px; 
+            border-radius: 12px; 
+            max-width: 900px; 
+            margin: auto; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
+        }
+        h1 { 
+            color: #2c3e50; 
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .success { 
+            color: #27ae60; 
+            background: #d5f4e6;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .error { 
+            color: #e74c3c; 
+            background: #fadbd8;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .field { 
+            margin-bottom: 20px; 
+        }
+        label { 
+            font-weight: bold; 
+            display: block;
+            margin-bottom: 8px;
+        }
+        .upload-btn {
+            background: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        .upload-btn:hover {
+            background: #2980b9;
+        }
+        .confidence-panel {
+            background: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .confidence-score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #27ae60;
+        }
+        .confidence-bar {
+            background: #bdc3c7;
+            height: 20px;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e74c3c, #f39c12, #27ae60);
+            transition: width 0.5s;
+        }
+        .section {
+            margin-bottom: 25px;
+            padding: 15px;
+            border-left: 4px solid #3498db;
+            background: #f8f9fa;
+        }
+        .section h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+        }
+        .section-content {
+            line-height: 1.6;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .metric {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3498db;
+        }
+        .metric-label {
+            color: #7f8c8d;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .processing-info {
+            background: #e8f4fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #3498db;
+        }
+        .error-log {
+            background: #fdf2f2;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #e74c3c;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🏢 Enterprise Research Paper Analysis</h1>
+    
+    {% if message %}
+        <div class="{% if error %}error{% else %}success{% endif %}">
+            <strong>{% if error %}❌ Error{% else %}✅ Success{% endif %}:</strong> {{ message }}
+        </div>
+    {% endif %}
+    
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="field">
+            <label for="{{ form.file.id_for_label }}">📄 Upload Research Paper (PDF, DOCX)</label>
+            {{ form.file }}
+        </div>
+        <button type="submit" class="upload-btn">🚀 Analyze Paper</button>
+    </form>
+
+    {% if confidence_info %}
+        <div class="confidence-panel">
+            <h2>📊 Analysis Quality Report</h2>
+            
+            <div class="metrics">
+                <div class="metric">
+                    <div class="metric-value">{{ confidence_info.overall_confidence }}</div>
+                    <div class="metric-label">Overall Confidence</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">{{ confidence_info.processing_time }}</div>
+                    <div class="metric-label">Processing Time</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">{{ confidence_info.word_count }}</div>
+                    <div class="metric-label">Word Count</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">{{ confidence_info.extraction_method }}</div>
+                    <div class="metric-label">Extraction Method</div>
+                </div>
+            </div>
+            
+            <div class="confidence-bar">
+                <div class="confidence-fill" style="width: {{ confidence_info.overall_confidence }}"></div>
+            </div>
+            
+            <div class="processing-info">
+                <h3>🔍 Section Confidence Scores</h3>
+                {% for section, confidence in confidence_info.section_confidence.items %}
+                    <div style="margin: 10px 0;">
+                        <strong>{{ section|title }}:</strong> 
+                        <span style="color: {% if confidence > 0.7 %}#27ae60{% elif confidence > 0.4 %}#f39c12{% else %}#e74c3c{% endif %};">
+                            {{ confidence|floatformat:1 }}%
+                        </span>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    {% if title %}
+        <div class="section">
+            <h3>📝 Title</h3>
+            <div class="section-content">{{ title }}</div>
+        </div>
+        
+        <div class="section">
+            <h3>👥 Authors</h3>
+            <div class="section-content">{{ authors }}</div>
+        </div>
+        
+        <div class="section">
+            <h3>📋 Content Type</h3>
+            <div class="section-content">{{ content_type }}</div>
+        </div>
+        
+        {% if abstract %}
+        <div class="section">
+            <h3>📄 Abstract</h3>
+            <div class="section-content">{{ abstract|linebreaks }}</div>
+        </div>
+        {% endif %}
+        
+        {% if introduction %}
+        <div class="section">
+            <h3>🎯 Introduction</h3>
+            <div class="section-content">{{ introduction|linebreaks }}</div>
+        </div>
+        {% endif %}
+        
+        {% if methodology %}
+        <div class="section">
+            <h3>🔬 Methodology</h3>
+            <div class="section-content">{{ methodology|linebreaks }}</div>
+        </div>
+        {% endif %}
+        
+        {% if results %}
+        <div class="section">
+            <h3>📈 Results</h3>
+            <div class="section-content">{{ results|linebreaks }}</div>
+        </div>
+        {% endif %}
+        
+        {% if conclusion %}
+        <div class="section">
+            <h3>✅ Conclusion</h3>
+            <div class="section-content">{{ conclusion|linebreaks }}</div>
+        </div>
+        {% endif %}
+        
+        {% if references %}
+        <div class="section">
+            <h3>📚 References</h3>
+            <div class="section-content">{{ references|linebreaks }}</div>
+        </div>
+        {% endif %}
+        
+        <div class="section">
+            <h3>📅 Analysis Date</h3>
+            <div class="section-content">{{ extracted_date|date:"F j, Y, g:i a" }}</div>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+// Add confidence bar animation
+document.addEventListener('DOMContentLoaded', function() {
+    const confidenceFill = document.querySelector('.confidence-fill');
+    if (confidenceFill) {
+        const width = confidenceFill.style.width;
+        confidenceFill.style.width = '0%';
+        setTimeout(() => {
+            confidenceFill.style.width = width;
+        }, 500);
+    }
+});
+</script>
+</body>
+</html> 

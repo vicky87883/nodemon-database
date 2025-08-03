@@ -1,0 +1,18 @@
+<!-- scholar/templates/academic_content_list.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Academic Content List</title>
+</head>
+<body>
+    <h1>Academic Content List</h1>
+
+    <ul>
+        {% for content in academic_contents %}
+            <li>{{ content.title }} - {{ content.authors }}</li>
+        {% empty %}
+            <p>No academic content available.</p>
+        {% endfor %}
+    </ul>
+</body>
+</html>
