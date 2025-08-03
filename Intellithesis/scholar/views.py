@@ -117,7 +117,7 @@ def process_tex(file_path: str) -> Tuple[str, List[str]]:
     Enterprise-grade LaTeX processing with comprehensive error handling.
     """
     errors = []
-    text = ""
+        text = ""
     
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -676,7 +676,7 @@ def parse_llm_response_enhanced(response_content: str, extracted_sections: Dict[
                     result['content_type'] = 'THESIS'
                 elif 'JOURNAL' in content_type_raw:
                     result['content_type'] = 'JOURNAL'
-                else:
+        else:
                     result['content_type'] = 'RESEARCH_PAPER'
                 current_section = None
                 section_content = []
@@ -721,7 +721,7 @@ def parse_llm_response_enhanced(response_content: str, extracted_sections: Dict[
         
         logger.info("Enhanced LLM response parsing completed successfully")
         
-    except Exception as e:
+        except Exception as e:
         error_msg = f"Enhanced LLM response parsing error: {str(e)}"
         errors.append(error_msg)
         logger.error(error_msg)

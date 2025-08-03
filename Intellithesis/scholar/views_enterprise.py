@@ -10,13 +10,14 @@ from .forms import ResearchPaperForm
 import re
 import json
 import logging
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import traceback
 from difflib import SequenceMatcher
 from collections import defaultdict
+import time
 
 # Configure logging for production
 logging.basicConfig(level=logging.INFO)
@@ -978,148 +979,406 @@ def find_matching_paragraphs_for_caption(caption_text: str, caption_label: str, 
     
     return paragraphs, match_scores, proximity_scores, keyword_scores
 
-def extract_keywords_from_caption(caption_text: str) -> List[str]:
+def validate_caption_quality(caption: str, linked_text: str = None, full_text: str = None) -> Dict[str, float]:
+    """
+    Validate extracted figure and table captions for quality scoring.
+    
+    Args:
+        caption (str): The caption to validate
+        linked_text (str): Text that references the caption
+        full_text (str): Full document text for broader context
+        
+    Returns:
+        Dict[str, float]: Quality scores for clarity, contextual link, and completeness
+    """
+    if not caption or not caption.strip():
+        return {
+            "clarity_score": 0.0,
+            "contextual_link_score": 0.0,
+            "completeness_score": 0.0,
+            "overall_quality_score": 0.0
+        }
+    
+    # Calculate individual scores
+    clarity_score = calculate_clarity_score(caption)
+    contextual_link_score = calculate_contextual_link_score(caption, linked_text, full_text)
+    completeness_score = calculate_completeness_score(caption, linked_text)
+    
+    # Calculate overall quality score (weighted average)
+    overall_quality_score = (
+        clarity_score * 0.3 +
+        contextual_link_score * 0.4 +
+        completeness_score * 0.3
+    )
+    
+    return {
+        "clarity_score": round(clarity_score, 3),
+        "contextual_link_score": round(contextual_link_score, 3),
+        "completeness_score": round(completeness_score, 3),
+        "overall_quality_score": round(overall_quality_score, 3)
+    }
+
+
+def calculate_clarity_score(caption: str) -> float:
+    """
+    Calculate semantic clarity score for a caption.
+    
+    Args:
+        caption (str): The caption to evaluate
+        
+    Returns:
+        float: Clarity score between 0.0 and 1.0
+    """
+    if not caption or not caption.strip():
+        return 0.0
+    
+    score = 1.0
+    
+    # Check for minimum length (captions should be descriptive)
+    if len(caption.strip()) < 10:
+        score -= 0.3
+    elif len(caption.strip()) < 20:
+        score -= 0.1
+    
+    # Check for common caption patterns
+    caption_lower = caption.lower()
+    
+    # Penalize very generic captions
+    generic_terms = ['figure', 'table', 'image', 'graph', 'chart', 'diagram']
+    if any(term in caption_lower for term in generic_terms) and len(caption.split()) < 4:
+        score -= 0.2
+    
+    # Bonus for descriptive words
+    descriptive_words = ['showing', 'depicting', 'illustrating', 'demonstrating', 'comparing', 'analysis', 'results', 'performance', 'architecture', 'model', 'system']
+    if any(word in caption_lower for word in descriptive_words):
+        score += 0.1
+    
+    # Penalize for excessive punctuation or formatting issues
+    if caption.count(':') > 2 or caption.count('.') > 3:
+        score -= 0.1
+    
+    # Check for proper capitalization and structure
+    words = caption.split()
+    if len(words) > 0:
+        # Check if first word is properly capitalized
+        if not words[0][0].isupper():
+            score -= 0.1
+        
+        # Check for mixed case issues
+        all_upper = all(word.isupper() for word in words if len(word) > 1)
+        if all_upper:
+            score -= 0.1
+    
+    return max(0.0, min(1.0, score))
+
+
+def calculate_contextual_link_score(caption: str, linked_text: str = None, full_text: str = None) -> float:
+    """
+    Calculate contextual link score based on how well the caption is referenced in text.
+    
+    Args:
+        caption (str): The caption to evaluate
+        linked_text (str): Text that references the caption
+        full_text (str): Full document text for broader context
+        
+    Returns:
+        float: Contextual link score between 0.0 and 1.0
+    """
+    if not caption or not caption.strip():
+        return 0.0
+    
+    score = 0.0
+    
+    # Extract caption label (e.g., "Figure 3", "Table 1")
+    caption_label = extract_caption_label(caption)
+    
+    if linked_text:
+        # Check if caption label is mentioned in linked text
+        if caption_label and caption_label.lower() in linked_text.lower():
+            score += 0.6
+        
+        # Check for semantic similarity between caption and linked text
+        caption_keywords = extract_keywords_from_caption(caption)
+        text_keywords = extract_keywords_from_text(linked_text)
+        
+        # Calculate keyword overlap
+        if caption_keywords and text_keywords:
+            overlap = len(set(caption_keywords) & set(text_keywords))
+            total_unique = len(set(caption_keywords) | set(text_keywords))
+            if total_unique > 0:
+                keyword_similarity = overlap / total_unique
+                score += keyword_similarity * 0.3
+        
+        # Check for proximity and reference patterns
+        if any(ref in linked_text.lower() for ref in ['as shown in', 'depicted in', 'illustrated in', 'presented in']):
+            score += 0.1
+    
+    if full_text and not linked_text:
+        # Search for caption label in full text
+        if caption_label and caption_label.lower() in full_text.lower():
+            score += 0.4
+        
+        # Check for semantic similarity with nearby text
+        nearby_text = find_nearby_text_for_caption(caption, full_text)
+        if nearby_text:
+            caption_keywords = extract_keywords_from_caption(caption)
+            text_keywords = extract_keywords_from_text(' '.join(nearby_text))
+            
+            if caption_keywords and text_keywords:
+                overlap = len(set(caption_keywords) & set(text_keywords))
+                total_unique = len(set(caption_keywords) | set(text_keywords))
+                if total_unique > 0:
+                    keyword_similarity = overlap / total_unique
+                    score += keyword_similarity * 0.3
+    
+    return max(0.0, min(1.0, score))
+
+
+def calculate_completeness_score(caption: str, linked_text: str = None) -> float:
+    """
+    Calculate completeness score based on how self-contained the caption is.
+    
+    Args:
+        caption (str): The caption to evaluate
+        linked_text (str): Text that references the caption
+        
+    Returns:
+        float: Completeness score between 0.0 and 1.0
+    """
+    if not caption or not caption.strip():
+        return 0.0
+    
+    score = 1.0
+    
+    # Check for essential caption components
+    caption_lower = caption.lower()
+    
+    # Check if caption has a subject/object
+    if not any(word in caption_lower for word in ['showing', 'of', 'for', 'with', 'in', 'on', 'at']):
+        score -= 0.2
+    
+    # Check for descriptive content beyond just label
+    words = caption.split()
+    if len(words) < 3:  # Too short
+        score -= 0.3
+    elif len(words) < 5:  # Could be more descriptive
+        score -= 0.1
+    
+    # Check for specific details (numbers, measurements, etc.)
+    if re.search(r'\d+', caption):
+        score += 0.1
+    
+    # Check for technical terms or domain-specific vocabulary
+    technical_terms = ['accuracy', 'performance', 'model', 'system', 'architecture', 'algorithm', 'method', 'approach', 'technique', 'analysis', 'results', 'comparison', 'evaluation']
+    if any(term in caption_lower for term in technical_terms):
+        score += 0.1
+    
+    # Penalize for incomplete sentences or fragments
+    if caption.endswith((':', '.', ';')) and len(words) < 4:
+        score -= 0.2
+    
+    # Check if caption provides enough context without linked text
+    if not linked_text:
+        # Caption should be more self-contained
+        if len(words) < 6:
+            score -= 0.2
+    
+    return max(0.0, min(1.0, score))
+
+
+def extract_caption_label(caption: str) -> str:
+    """
+    Extract the label part of a caption (e.g., "Figure 3", "Table 1").
+    
+    Args:
+        caption (str): The caption text
+        
+    Returns:
+        str: The extracted label or empty string
+    """
+    if not caption:
+        return ""
+    
+    # Common patterns for figure/table labels
+    patterns = [
+        r'(Figure\s+\d+)',
+        r'(Fig\.\s*\d+)',
+        r'(Table\s+\d+)',
+        r'(Tab\.\s*\d+)',
+        r'(Figure\s+[A-Z])',
+        r'(Table\s+[A-Z])'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, caption, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    
+    return ""
+
+
+def extract_keywords_from_caption(caption: str) -> List[str]:
     """
     Extract meaningful keywords from caption text.
+    
+    Args:
+        caption (str): The caption text
+        
+    Returns:
+        List[str]: List of keywords
     """
-    # Remove common words and punctuation
-    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'}
+    if not caption:
+        return []
+    
+    # Remove common stop words and caption labels
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'figure', 'fig', 'table', 'tab'}
     
     # Clean and tokenize
-    words = re.findall(r'\b[a-zA-Z]+\b', caption_text.lower())
+    cleaned = re.sub(r'[^\w\s]', ' ', caption.lower())
+    words = cleaned.split()
     
     # Filter out stop words and short words
     keywords = [word for word in words if word not in stop_words and len(word) > 2]
     
     return keywords
 
-def calculate_semantic_similarity(text1: str, text2: str) -> float:
-    """
-    Calculate semantic similarity between two texts using sequence matching.
-    """
-    # Simple sequence matcher for similarity
-    similarity = SequenceMatcher(None, text1.lower(), text2.lower()).ratio()
-    return similarity
 
-def calculate_proximity_score(paragraph_line: int, caption_line: int, total_lines: int) -> float:
+def extract_keywords_from_text(text: str) -> List[str]:
     """
-    Calculate proximity score based on line distance.
-    """
-    distance = abs(paragraph_line - caption_line)
-    max_distance = total_lines * 0.1  # Consider 10% of document as reasonable proximity
+    Extract meaningful keywords from text.
     
-    if distance <= max_distance:
-        return 1.0 - (distance / max_distance)
-    else:
-        return 0.0
+    Args:
+        text (str): The text to extract keywords from
+        
+    Returns:
+        List[str]: List of keywords
+    """
+    if not text:
+        return []
+    
+    # Remove common stop words
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'as', 'shown', 'in', 'figure', 'table'}
+    
+    # Clean and tokenize
+    cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
+    words = cleaned.split()
+    
+    # Filter out stop words and short words
+    keywords = [word for word in words if word not in stop_words and len(word) > 2]
+    
+    return keywords
 
-def calculate_keyword_overlap(caption_keywords: List[str], paragraph_text: str) -> float:
-    """
-    Calculate keyword overlap between caption and paragraph.
-    """
-    if not caption_keywords:
-        return 0.0
-    
-    paragraph_words = set(re.findall(r'\b[a-zA-Z]+\b', paragraph_text.lower()))
-    caption_word_set = set(caption_keywords)
-    
-    if not caption_word_set:
-        return 0.0
-    
-    overlap = len(caption_word_set.intersection(paragraph_words))
-    return overlap / len(caption_word_set)
 
-def is_section_header(line: str) -> bool:
+def validate_captions_batch(captions_data: List[Dict]) -> List[Dict]:
     """
-    Check if a line is likely a section header.
+    Validate a batch of captions for quality scoring.
+    
+    Args:
+        captions_data (List[Dict]): List of caption data with 'caption', 'linked_text', 'full_text'
+        
+    Returns:
+        List[Dict]: List of validation results with quality scores
     """
-    # Common section header patterns
-    header_patterns = [
-        r'^\d+\.\s+[A-Z]',  # Numbered sections
-        r'^[A-Z][A-Z\s]+$',  # All caps headers
-        r'^[A-Z][a-z\s]+:$',  # Title case with colon
-        r'^(Abstract|Introduction|Methodology|Results|Conclusion|References|Bibliography)',
-        r'^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$'  # Title case words
-    ]
+    results = []
     
-    for pattern in header_patterns:
-        if re.match(pattern, line):
-            return True
+    for caption_data in captions_data:
+        caption = caption_data.get('caption', '')
+        linked_text = caption_data.get('linked_text', '')
+        full_text = caption_data.get('full_text', '')
+        
+        quality_scores = validate_caption_quality(caption, linked_text, full_text)
+        
+        result = {
+            'caption': caption,
+            'linked_text': linked_text,
+            'quality_scores': quality_scores,
+            'validation_status': 'high_quality' if quality_scores['overall_quality_score'] >= 0.8 else 'medium_quality' if quality_scores['overall_quality_score'] >= 0.6 else 'low_quality'
+        }
+        
+        results.append(result)
     
-    return False
+    return results
 
-def analyze_caption_with_ai(caption_text: str, caption_label: str, matching_paragraphs: List[str], full_text: str) -> Tuple[List[str], List[float]]:
+
+def process_caption_validation_request(request) -> JsonResponse:
     """
-    Use AI to analyze caption and find the best matching paragraphs.
+    API endpoint for caption quality validation.
+    
+    Expected POST data:
+    {
+        "captions": [
+            {
+                "caption": "Figure 3: Model architecture",
+                "linked_text": "As shown in Figure 3, the model consists of three layers and a residual connection.",
+                "full_text": "..." // optional
+            }
+        ]
+    }
     """
     try:
-        # Prepare context for AI analysis
-        context = f"""
-        CAPTION: {caption_label}: {caption_text}
+        if request.method != 'POST':
+            return JsonResponse({
+                'error': 'Only POST method is supported',
+                'status': 'error'
+            }, status=405)
         
-        FULL DOCUMENT TEXT:
-        {full_text[:3000]}  # Limit context size
+        data = json.loads(request.body)
+        captions_data = data.get('captions', [])
         
-        TASK: Find 1-2 paragraphs (up to 250 words total) that best describe or refer to this caption.
+        if not captions_data:
+            return JsonResponse({
+                'error': 'No captions provided',
+                'status': 'error'
+            }, status=400)
         
-        PRIORITIZE:
-        1. Proximity to caption in text
-        2. References to the same figure/table label
-        3. Matching keywords from the caption
-        4. Semantic similarity to caption content
+        start_time = time.time()
         
-        RESPONSE FORMAT:
-        PARAGRAPH_1: [First matching paragraph]
-        PARAGRAPH_2: [Second matching paragraph if applicable]
-        CONFIDENCE: [Confidence score 0.0-1.0]
-        """
+        # Validate captions
+        validation_results = validate_captions_batch(captions_data)
         
-        # Send to Groq for analysis
-        chat_completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": context}],
-            model="llama3-8b-8192",
-            temperature=0.1,
-            max_tokens=1000,
-            top_p=0.9
-        )
+        # Calculate summary statistics
+        total_captions = len(validation_results)
+        high_quality_count = sum(1 for result in validation_results if result['validation_status'] == 'high_quality')
+        medium_quality_count = sum(1 for result in validation_results if result['validation_status'] == 'medium_quality')
+        low_quality_count = sum(1 for result in validation_results if result['validation_status'] == 'low_quality')
         
-        response = chat_completion.choices[0].message.content
+        avg_clarity = sum(result['quality_scores']['clarity_score'] for result in validation_results) / total_captions
+        avg_contextual = sum(result['quality_scores']['contextual_link_score'] for result in validation_results) / total_captions
+        avg_completeness = sum(result['quality_scores']['completeness_score'] for result in validation_results) / total_captions
+        avg_overall = sum(result['quality_scores']['overall_quality_score'] for result in validation_results) / total_captions
         
-        # Parse AI response
-        ai_paragraphs = []
-        ai_confidences = []
+        result = {
+            'validation_results': validation_results,
+            'summary': {
+                'total_captions': total_captions,
+                'high_quality_count': high_quality_count,
+                'medium_quality_count': medium_quality_count,
+                'low_quality_count': low_quality_count,
+                'average_scores': {
+                    'clarity_score': round(avg_clarity, 3),
+                    'contextual_link_score': round(avg_contextual, 3),
+                    'completeness_score': round(avg_completeness, 3),
+                    'overall_quality_score': round(avg_overall, 3)
+                }
+            },
+            'processing_time': time.time() - start_time,
+            'status': 'success'
+        }
         
-        lines = response.split('\n')
-        current_paragraph = []
+        return JsonResponse(result)
         
-        for line in lines:
-            line = line.strip()
-            if line.upper().startswith('PARAGRAPH_'):
-                if current_paragraph:
-                    ai_paragraphs.append(' '.join(current_paragraph))
-                    ai_confidences.append(0.8)  # Default confidence for AI-selected paragraphs
-                current_paragraph = [line.split(':', 1)[1].strip() if ':' in line else '']
-            elif line.upper().startswith('CONFIDENCE:'):
-                try:
-                    confidence = float(line.split(':', 1)[1].strip())
-                    if ai_confidences:
-                        ai_confidences[-1] = confidence
-                except ValueError:
-                    pass
-            elif line and current_paragraph:
-                current_paragraph.append(line)
-        
-        # Add last paragraph
-        if current_paragraph:
-            ai_paragraphs.append(' '.join(current_paragraph))
-            ai_confidences.append(0.8)
-        
-        return ai_paragraphs, ai_confidences
-        
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'error': 'Invalid JSON data',
+            'status': 'error'
+        }, status=400)
     except Exception as e:
-        logger.error(f"AI caption analysis error: {str(e)}")
-        # Return empty results on error
-        return [], []
+        logger.error(f"Caption validation error: {str(e)}")
+        return JsonResponse({
+            'error': f'Processing error: {str(e)}',
+            'status': 'error'
+        }, status=500)
+
 
 def find_caption_matches(caption_text: str, full_text: str) -> CaptionMatch:
     """
@@ -1511,3 +1770,664 @@ def enhance_ocr_text_with_image_descriptions(ocr_text: str) -> Tuple[str, Dict[s
         enhanced_text = re.sub(placeholder_pattern, replacement, enhanced_text, flags=re.IGNORECASE)
     
     return enhanced_text, descriptions 
+
+def normalize_caption_for_fingerprinting(caption: str) -> str:
+    """
+    Normalize academic figure/table captions for fingerprinting and semantic comparison.
+    
+    Args:
+        caption (str): Raw caption text
+        
+    Returns:
+        str: Normalized caption ready for fingerprinting
+    """
+    if not caption or not caption.strip():
+        return ""
+    
+    # Convert to lowercase
+    normalized = caption.lower().strip()
+    
+    # Remove citations in parentheses (e.g., "(Smith, 2020)", "(et al., 2021)")
+    normalized = re.sub(r'\([^)]*\)', '', normalized)
+    
+    # Remove citations in brackets (e.g., "[1]", "[2-5]")
+    normalized = re.sub(r'\[[^\]]*\]', '', normalized)
+    
+    # Remove special characters except basic punctuation
+    normalized = re.sub(r'[^\w\s\.\,\:\;\-\_]', '', normalized)
+    
+    # Replace numbers with [#] placeholder
+    normalized = re.sub(r'\d+', '[#]', normalized)
+    
+    # Remove extra whitespace and normalize spaces
+    normalized = re.sub(r'\s+', ' ', normalized)
+    
+    # Remove leading/trailing whitespace
+    normalized = normalized.strip()
+    
+    return normalized
+
+
+def normalize_captions_batch(captions: List[str]) -> List[str]:
+    """
+    Normalize a batch of captions for fingerprinting and semantic comparison.
+    
+    Args:
+        captions (List[str]): List of raw caption texts
+        
+    Returns:
+        List[str]: List of normalized captions
+    """
+    return [normalize_caption_for_fingerprinting(caption) for caption in captions]
+
+
+def calculate_caption_similarity(caption1: str, caption2: str) -> float:
+    """
+    Calculate semantic similarity between two normalized captions.
+    
+    Args:
+        caption1 (str): First caption
+        caption2 (str): Second caption
+        
+    Returns:
+        float: Similarity score between 0.0 and 1.0
+    """
+    # Normalize both captions
+    norm1 = normalize_caption_for_fingerprinting(caption1)
+    norm2 = normalize_caption_for_fingerprinting(caption2)
+    
+    if not norm1 or not norm2:
+        return 0.0
+    
+    # Calculate similarity using SequenceMatcher
+    similarity = SequenceMatcher(None, norm1, norm2).ratio()
+    
+    return similarity
+
+
+def find_similar_captions(target_caption: str, caption_list: List[str], threshold: float = 0.7) -> List[Tuple[str, float]]:
+    """
+    Find captions similar to a target caption above a similarity threshold.
+    
+    Args:
+        target_caption (str): The caption to find matches for
+        caption_list (List[str]): List of captions to search through
+        threshold (float): Minimum similarity score (0.0-1.0)
+        
+    Returns:
+        List[Tuple[str, float]]: List of (caption, similarity_score) tuples
+    """
+    similar_captions = []
+    
+    for caption in caption_list:
+        similarity = calculate_caption_similarity(target_caption, caption)
+        if similarity >= threshold:
+            similar_captions.append((caption, similarity))
+    
+    # Sort by similarity score (highest first)
+    similar_captions.sort(key=lambda x: x[1], reverse=True)
+    
+    return similar_captions
+
+
+def process_caption_normalization_request(request) -> JsonResponse:
+    """
+    API endpoint for caption normalization.
+    
+    Expected POST data:
+    {
+        "captions": ["Figure 2: Accuracy across 10 folds (Smith, 2020)", "Table 1. Summary of Results"],
+        "operation": "normalize" | "similarity" | "find_similar",
+        "target_caption": "Figure 2: Accuracy across 10 folds (Smith, 2020)",  # for similarity/find_similar
+        "threshold": 0.7  # for find_similar
+    }
+    """
+    try:
+        if request.method != 'POST':
+            return JsonResponse({
+                'error': 'Only POST method is supported',
+                'status': 'error'
+            }, status=405)
+        
+        data = json.loads(request.body)
+        captions = data.get('captions', [])
+        operation = data.get('operation', 'normalize')
+        
+        if not captions:
+            return JsonResponse({
+                'error': 'No captions provided',
+                'status': 'error'
+            }, status=400)
+        
+        start_time = time.time()
+        
+        if operation == 'normalize':
+            # Normalize captions
+            normalized_captions = normalize_captions_batch(captions)
+            
+            result = {
+                'operation': 'normalize',
+                'original_captions': captions,
+                'normalized_captions': normalized_captions,
+                'processing_time': time.time() - start_time,
+                'status': 'success'
+            }
+            
+        elif operation == 'similarity':
+            # Calculate similarity between two captions
+            target_caption = data.get('target_caption')
+            if not target_caption or len(captions) < 2:
+                return JsonResponse({
+                    'error': 'For similarity operation, provide target_caption and at least 2 captions',
+                    'status': 'error'
+                }, status=400)
+            
+            similarities = []
+            for caption in captions:
+                if caption != target_caption:
+                    similarity = calculate_caption_similarity(target_caption, caption)
+                    similarities.append({
+                        'caption': caption,
+                        'similarity_score': similarity
+                    })
+            
+            # Sort by similarity score
+            similarities.sort(key=lambda x: x['similarity_score'], reverse=True)
+            
+            result = {
+                'operation': 'similarity',
+                'target_caption': target_caption,
+                'comparison_captions': captions,
+                'similarities': similarities,
+                'processing_time': time.time() - start_time,
+                'status': 'success'
+            }
+            
+        elif operation == 'find_similar':
+            # Find similar captions above threshold
+            target_caption = data.get('target_caption')
+            threshold = data.get('threshold', 0.7)
+            
+            if not target_caption:
+                return JsonResponse({
+                    'error': 'For find_similar operation, provide target_caption',
+                    'status': 'error'
+                }, status=400)
+            
+            similar_captions = find_similar_captions(target_caption, captions, threshold)
+            
+            result = {
+                'operation': 'find_similar',
+                'target_caption': target_caption,
+                'threshold': threshold,
+                'similar_captions': [
+                    {'caption': caption, 'similarity_score': score}
+                    for caption, score in similar_captions
+                ],
+                'total_matches': len(similar_captions),
+                'processing_time': time.time() - start_time,
+                'status': 'success'
+            }
+            
+        else:
+            return JsonResponse({
+                'error': f'Unknown operation: {operation}. Supported: normalize, similarity, find_similar',
+                'status': 'error'
+            }, status=400)
+        
+        return JsonResponse(result)
+        
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'error': 'Invalid JSON data',
+            'status': 'error'
+        }, status=400)
+    except Exception as e:
+        logger.error(f"Caption normalization error: {str(e)}")
+        return JsonResponse({
+            'error': f'Processing error: {str(e)}',
+            'status': 'error'
+        }, status=500) 
+
+@dataclass
+class OCRImageData:
+    """Data structure for OCR-extracted image information"""
+    image_filename: str
+    text_snippets: List[str]
+    bounding_box: Optional[Dict[str, float]] = None
+    confidence: float = 0.0
+
+@dataclass
+class OCRProcessingResult:
+    """Result of OCR processing with enhanced image descriptions"""
+    full_text: str
+    enhanced_text: str
+    image_descriptions: Dict[str, str]
+    image_confidence_scores: Dict[str, float]
+    processing_summary: Dict[str, Any]
+
+def process_ocr_document_with_images(
+    full_text: str,
+    ocr_images: List[str],
+    ocr_text_snippets: List[str],
+    groq_client=None
+) -> OCRProcessingResult:
+    """
+    Process OCR-extracted document with image placeholders and text snippets.
+    
+    Args:
+        full_text: Complete text extracted from PDF
+        ocr_images: List of image filenames (e.g., ['image_001.jpg', 'image_002.jpg'])
+        ocr_text_snippets: List of text snippets near image bounding boxes
+        groq_client: Optional Groq client for AI analysis
+    
+    Returns:
+        OCRProcessingResult with enhanced text and image descriptions
+    """
+    try:
+        logger.info(f"Processing OCR document with {len(ocr_images)} images")
+        
+        # Initialize result structure
+        image_descriptions = {}
+        image_confidence_scores = {}
+        enhanced_text = full_text
+        
+        # Process each image
+        for i, image_filename in enumerate(ocr_images):
+            text_snippet = ocr_text_snippets[i] if i < len(ocr_text_snippets) else ""
+            
+            # Generate description using AI if available
+            if groq_client:
+                description, confidence = analyze_ocr_image_with_ai(
+                    image_filename, text_snippet, full_text, groq_client
+                )
+            else:
+                description, confidence = analyze_ocr_image_traditional(
+                    image_filename, text_snippet, full_text
+                )
+            
+            image_descriptions[image_filename] = description
+            image_confidence_scores[image_filename] = confidence
+            
+            # Enhance the text by adding the description
+            enhanced_text = insert_image_description_into_text(
+                enhanced_text, image_filename, description
+            )
+        
+        # Calculate processing summary
+        processing_summary = {
+            "total_images": len(ocr_images),
+            "processed_images": len(image_descriptions),
+            "average_confidence": sum(image_confidence_scores.values()) / len(image_confidence_scores) if image_confidence_scores else 0.0,
+            "enhancement_ratio": len(enhanced_text) / len(full_text) if full_text else 1.0
+        }
+        
+        return OCRProcessingResult(
+            full_text=full_text,
+            enhanced_text=enhanced_text,
+            image_descriptions=image_descriptions,
+            image_confidence_scores=image_confidence_scores,
+            processing_summary=processing_summary
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing OCR document: {str(e)}")
+        return OCRProcessingResult(
+            full_text=full_text,
+            enhanced_text=full_text,
+            image_descriptions={},
+            image_confidence_scores={},
+            processing_summary={"error": str(e)}
+        )
+
+def analyze_ocr_image_with_ai(
+    image_filename: str,
+    text_snippet: str,
+    full_text: str,
+    groq_client
+) -> Tuple[str, float]:
+    """
+    Use AI to analyze OCR image and generate description.
+    """
+    try:
+        # Determine image type from filename
+        image_type = determine_image_type_from_filename(image_filename)
+        
+        # Find relevant context in full text
+        context_snippets = find_relevant_context_for_image(
+            image_filename, text_snippet, full_text
+        )
+        
+        prompt = f"""
+        You are analyzing an OCR-extracted academic document with image placeholders.
+        
+        Image: {image_filename}
+        Image Type: {image_type}
+        Nearby Text: {text_snippet}
+        Context Snippets: {context_snippets[:3]}  # Top 3 most relevant
+        
+        Task: Generate a clear, academic description of what this image likely shows.
+        
+        Guidelines:
+        - Be specific but concise (1-2 sentences)
+        - Use academic language
+        - Consider the image type ({image_type})
+        - Reference the nearby text and context
+        - Focus on the likely content/purpose
+        
+        Response format:
+        DESCRIPTION: [Your description here]
+        CONFIDENCE: [0.0-1.0 score]
+        REASONING: [Brief explanation of your reasoning]
+        """
+        
+        response = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama3-8b-8192",
+            temperature=0.3,
+            max_tokens=300
+        )
+        
+        response_content = response.choices[0].message.content
+        
+        # Parse response
+        description = extract_description_from_ai_response(response_content)
+        confidence = extract_confidence_from_ai_response(response_content)
+        
+        return description, confidence
+        
+    except Exception as e:
+        logger.error(f"AI analysis failed for {image_filename}: {str(e)}")
+        return f"Image placeholder: {image_filename}", 0.3
+
+def analyze_ocr_image_traditional(
+    image_filename: str,
+    text_snippet: str,
+    full_text: str
+) -> Tuple[str, float]:
+    """
+    Traditional analysis without AI for OCR images.
+    """
+    try:
+        image_type = determine_image_type_from_filename(image_filename)
+        
+        # Extract keywords from nearby text
+        keywords = extract_keywords_from_text(text_snippet)
+        
+        # Find related content in full text
+        related_content = find_related_content_in_text(
+            keywords, full_text, context_window=200
+        )
+        
+        # Generate description based on patterns
+        description = generate_description_from_patterns(
+            image_filename, image_type, keywords, related_content
+        )
+        
+        # Calculate confidence based on keyword density and context
+        confidence = calculate_description_confidence(
+            keywords, related_content, text_snippet
+        )
+        
+        return description, confidence
+        
+    except Exception as e:
+        logger.error(f"Traditional analysis failed for {image_filename}: {str(e)}")
+        return f"Image placeholder: {image_filename}", 0.2
+
+def determine_image_type_from_filename(filename: str) -> str:
+    """Determine if image is likely a figure, table, or other based on filename."""
+    filename_lower = filename.lower()
+    
+    if any(keyword in filename_lower for keyword in ['fig', 'figure', 'diagram', 'chart']):
+        return "figure"
+    elif any(keyword in filename_lower for keyword in ['table', 'tab']):
+        return "table"
+    elif any(keyword in filename_lower for keyword in ['graph', 'plot']):
+        return "graph"
+    else:
+        return "image"
+
+def find_relevant_context_for_image(
+    image_filename: str,
+    text_snippet: str,
+    full_text: str,
+    max_snippets: int = 5
+) -> List[str]:
+    """Find relevant context snippets for an image in the full text."""
+    try:
+        # Extract keywords from text snippet
+        snippet_keywords = extract_keywords_from_text(text_snippet)
+        
+        # Split full text into sentences
+        sentences = split_text_into_sentences(full_text)
+        
+        # Score each sentence based on keyword overlap
+        scored_sentences = []
+        for sentence in sentences:
+            sentence_keywords = extract_keywords_from_text(sentence)
+            overlap = len(set(snippet_keywords) & set(sentence_keywords))
+            score = overlap / len(snippet_keywords) if snippet_keywords else 0
+            scored_sentences.append((sentence, score))
+        
+        # Sort by score and return top snippets
+        scored_sentences.sort(key=lambda x: x[1], reverse=True)
+        return [sentence for sentence, score in scored_sentences[:max_snippets] if score > 0]
+        
+    except Exception as e:
+        logger.error(f"Error finding context for {image_filename}: {str(e)}")
+        return []
+
+def insert_image_description_into_text(
+    text: str,
+    image_filename: str,
+    description: str
+) -> str:
+    """Insert image description into the text at appropriate location."""
+    try:
+        # Find the best location to insert the description
+        # Look for references to the image filename
+        lines = text.split('\n')
+        
+        for i, line in enumerate(lines):
+            if image_filename in line:
+                # Insert description after the line containing the image reference
+                lines.insert(i + 1, f"[{description}]")
+                break
+        else:
+            # If no direct reference found, append to the end
+            lines.append(f"\n[{image_filename}: {description}]")
+        
+        return '\n'.join(lines)
+        
+    except Exception as e:
+        logger.error(f"Error inserting description for {image_filename}: {str(e)}")
+        return text
+
+def extract_description_from_ai_response(response: str) -> str:
+    """Extract description from AI response."""
+    try:
+        if "DESCRIPTION:" in response:
+            start = response.find("DESCRIPTION:") + len("DESCRIPTION:")
+            end = response.find("CONFIDENCE:") if "CONFIDENCE:" in response else len(response)
+            description = response[start:end].strip()
+            return description if description else "Image placeholder"
+        return "Image placeholder"
+    except:
+        return "Image placeholder"
+
+def extract_confidence_from_ai_response(response: str) -> float:
+    """Extract confidence score from AI response."""
+    try:
+        if "CONFIDENCE:" in response:
+            start = response.find("CONFIDENCE:") + len("CONFIDENCE:")
+            end = response.find("REASONING:") if "REASONING:" in response else len(response)
+            confidence_text = response[start:end].strip()
+            try:
+                return float(confidence_text)
+            except:
+                return 0.5
+        return 0.5
+    except:
+        return 0.5
+
+def split_text_into_sentences(text: str) -> List[str]:
+    """Split text into sentences using basic punctuation."""
+    import re
+    sentences = re.split(r'[.!?]+', text)
+    return [s.strip() for s in sentences if s.strip()]
+
+def find_related_content_in_text(
+    keywords: List[str],
+    text: str,
+    context_window: int = 200
+) -> str:
+    """Find content related to keywords in the text."""
+    try:
+        if not keywords:
+            return ""
+        
+        # Find positions of keywords in text
+        positions = []
+        for keyword in keywords:
+            pos = text.lower().find(keyword.lower())
+            if pos != -1:
+                positions.append(pos)
+        
+        if not positions:
+            return ""
+        
+        # Get text around the middle position
+        middle_pos = sum(positions) // len(positions)
+        start = max(0, middle_pos - context_window)
+        end = min(len(text), middle_pos + context_window)
+        
+        return text[start:end]
+        
+    except Exception as e:
+        logger.error(f"Error finding related content: {str(e)}")
+        return ""
+
+def generate_description_from_patterns(
+    filename: str,
+    image_type: str,
+    keywords: List[str],
+    related_content: str
+) -> str:
+    """Generate description using pattern matching."""
+    try:
+        if image_type == "figure":
+            if any(word in related_content.lower() for word in ['architecture', 'model', 'system']):
+                return f"System architecture diagram showing {', '.join(keywords[:3])}"
+            elif any(word in related_content.lower() for word in ['performance', 'accuracy', 'results']):
+                return f"Performance results chart displaying {', '.join(keywords[:3])}"
+            else:
+                return f"Figure showing {', '.join(keywords[:3]) if keywords else 'relevant data'}"
+        
+        elif image_type == "table":
+            return f"Data table summarizing {', '.join(keywords[:3]) if keywords else 'key information'}"
+        
+        elif image_type == "graph":
+            return f"Graph plotting {', '.join(keywords[:3]) if keywords else 'data trends'}"
+        
+        else:
+            return f"Image containing {', '.join(keywords[:3]) if keywords else 'visual content'}"
+            
+    except Exception as e:
+        logger.error(f"Error generating description: {str(e)}")
+        return f"Image placeholder: {filename}"
+
+def calculate_description_confidence(
+    keywords: List[str],
+    related_content: str,
+    text_snippet: str
+) -> float:
+    """Calculate confidence score for generated description."""
+    try:
+        # Base confidence
+        confidence = 0.3
+        
+        # Boost for keyword presence
+        if keywords:
+            confidence += 0.2
+        
+        # Boost for related content
+        if related_content and len(related_content) > 50:
+            confidence += 0.2
+        
+        # Boost for text snippet quality
+        if text_snippet and len(text_snippet) > 20:
+            confidence += 0.2
+        
+        # Boost for keyword overlap between snippet and content
+        snippet_keywords = extract_keywords_from_text(text_snippet)
+        content_keywords = extract_keywords_from_text(related_content)
+        overlap = len(set(snippet_keywords) & set(content_keywords))
+        if overlap > 0:
+            confidence += 0.1
+        
+        return min(confidence, 1.0)
+        
+    except Exception as e:
+        logger.error(f"Error calculating confidence: {str(e)}")
+        return 0.3
+
+def process_ocr_document_request(request):
+    """
+    API endpoint for processing OCR documents with images.
+    """
+    try:
+        if request.method == 'POST':
+            data = request.POST
+            
+            full_text = data.get('full_text', '')
+            ocr_images = data.getlist('ocr_images') if hasattr(data, 'getlist') else []
+            ocr_text_snippets = data.getlist('ocr_text_snippets') if hasattr(data, 'getlist') else []
+            
+            # Handle JSON input
+            if not full_text and request.content_type == 'application/json':
+                json_data = json.loads(request.body)
+                full_text = json_data.get('full_text', '')
+                ocr_images = json_data.get('ocr_images', [])
+                ocr_text_snippets = json_data.get('ocr_text_snippets', [])
+            
+            if not full_text:
+                return JsonResponse({
+                    'error': 'full_text is required',
+                    'status': 'error'
+                }, status=400)
+            
+            # Initialize Groq client
+            groq_client = None
+            try:
+                groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+            except Exception as e:
+                logger.warning(f"Groq client initialization failed: {str(e)}")
+            
+            # Process the OCR document
+            result = process_ocr_document_with_images(
+                full_text=full_text,
+                ocr_images=ocr_images,
+                ocr_text_snippets=ocr_text_snippets,
+                groq_client=groq_client
+            )
+            
+            return JsonResponse({
+                'status': 'success',
+                'enhanced_text': result.enhanced_text,
+                'image_descriptions': result.image_descriptions,
+                'image_confidence_scores': result.image_confidence_scores,
+                'processing_summary': result.processing_summary
+            })
+        
+        return JsonResponse({
+            'error': 'Only POST method is supported',
+            'status': 'error'
+        }, status=405)
+        
+    except Exception as e:
+        logger.error(f"Error processing OCR document request: {str(e)}")
+        return JsonResponse({
+            'error': str(e),
+            'status': 'error'
+        }, status=500) 
